@@ -57,9 +57,22 @@ EasyShop follows a three-tier architecture pattern:
 * Install Terraform<br/>
 #### Linux & macOS
 ```bash
-curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -
-sudo apt-add-repository "deb [arch=amd64] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
-sudo apt-get update && sudo apt-get install terraform
+echo "=============== install Terrafrom =================="
+sudo apt-get update && sudo apt-get install -y gnupg software-properties-common
+
+wget -O- https://apt.releases.hashicorp.com/gpg | \
+gpg --dearmor | \
+sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null
+
+gpg --no-default-keyring \
+--keyring /usr/share/keyrings/hashicorp-archive-keyring.gpg \
+--fingerprint
+
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(grep -oP '(?<=UBUNTU_CODENAME=).*' /etc/os-release || lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+
+sudo apt update
+
+sudo apt-get install terraform -y
 ```
 ### Verify Installation
 ```bash
@@ -73,10 +86,12 @@ terraform init
 AWS CLI (Command Line Interface) allows you to interact with AWS services directly from the command line.
 
 ```bash
+echo "=============== install AWS cli =================="
 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 sudo apt install unzip
 unzip awscliv2.zip
 sudo ./aws/install
+
 ```
 ###  Install AWS CLI in Windows 'powershell'
 ```msiexec.exe /i https://awscli.amazonaws.com/AWSCLIV2.msi```
@@ -770,42 +785,38 @@ upgrade filebeat helm chart and check in kibana’s UI if the app logs are strea
  helm upgrade my-filebeat elastic/filebeat   -n logging   -f filebeat-values.yaml
 ```
 ## **Congratulations!** <br/>
-![EasyShop Website Screenshot](./public/easyshop.JPG)
+![EasyShop Website Screenshot](./images/easyshop.png)
 
 ---
 
 ### 📌 Architecture Diagram
-![Diagram](./public/diagram-export.JPG)
+![Diagram](./images/diagram.png)
 
 ---
 
 ### 📌 ArgoCD
-![ArgoCD](./public/Argocd.JPG)
+![ArgoCD](./images/Argocd.png)
 
 ---
 
-### 📌 Capture
-![Capture](./public/Capture.JPG)
-
----
-
-### 📌 AlertManager
-![AlertManager](./public/alertManager.JPG)
+### 📌 Slack
+![Slack](./images/Slack.png)
 
 
 ---
 
 ### 📌 Grafana Dashboard
-![Grafana](./public/grafana.JPG)
+![Grafana](./images/Grafana.png)
+
 
 ---
 
-### 📌 Kibana Logs View
-![Kibana](./public/kibana.JPG)
+### 📌 EC2 Instances
+![EC2 Instances](./images/EC2_instances.png)
 
 ---
 
-### 📌 Prometheus Dashboard
-![Prometheus](./public/prometheus.JPG)
+### 📌 EKS
+![EKS](./images/EKS.png)
 
 ### WO! ooo!!! ...Your project is now deployed.
