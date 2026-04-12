@@ -435,7 +435,7 @@ helm show values prometheus-community/kube-prometheus-stack > kube-prom-stack.ya
 
 edit the file and add the following in the params for prometheus, grafana and alert manger.
 
-**Grafana:**
+**Grafana, Promethues, Alert manager**
 
 ```jsx
 global:
@@ -453,55 +453,77 @@ grafana:
   ingress:
     enabled: true
     ingressClassName: alb
-
     annotations:
       alb.ingress.kubernetes.io/scheme: internet-facing
       alb.ingress.kubernetes.io/target-type: ip
       alb.ingress.kubernetes.io/backend-protocol: HTTP
       alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
-
     paths:
       - path: /
         pathType: Prefix
-```
 
-**Prometheus:** 
 
-```jsx
-ingressClassName: alb
-annotations:
-      alb.ingress.kubernetes.io/group.name: easyshop-app-lb
-      alb.ingress.kubernetes.io/scheme: internet-facing
-      alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:ap-south-1:876997124628:certificate/b69bb6e7-cbd1-490b-b765-27574080f48c
-      alb.ingress.kubernetes.io/target-type: ip
-      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}, {"HTTPS":443}]'
-      alb.ingress.kubernetes.io/ssl-redirect: '443'
-    labels: {}
+# ---------------------
 
-    
-  
-    hosts: 
-      - prometheus.devopsdock.site
-        paths:
-        - /
-        pathType: Prefix
-```
-**Alertmanger:**
-```jsx
-ingressClassName: alb
-annotations:
-      alb.ingress.kubernetes.io/group.name: easyshop-app-lb
+prometheus:
+  prometheusSpec:
+    routePrefix: /
+    externalUrl: /
+
+  ingress:
+    enabled: true
+    ingressClassName: alb
+    annotations:
       alb.ingress.kubernetes.io/scheme: internet-facing
       alb.ingress.kubernetes.io/target-type: ip
       alb.ingress.kubernetes.io/backend-protocol: HTTP
-			alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}, {"HTTPS":443}]'
-      alb.ingress.kubernetes.io/ssl-redirect: '443'
-    
-    hosts: 
-      - alertmanager.devopsdock.site
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
     paths:
-    - /
-    pathType: Prefix
+      - /
+
+# ---------------------
+alertmanager:
+  ingress:
+    enabled: true
+    ingressClassName: alb
+    annotations:
+      alb.ingress.kubernetes.io/scheme: internet-facing
+      alb.ingress.kubernetes.io/target-type: ip
+      alb.ingress.kubernetes.io/backend-protocol: HTTP
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+      alb.ingress.kubernetes.io/healthcheck-path: /
+    paths:
+      - /
+
+  config:
+    global:
+      resolve_timeout: 5m
+
+    route:
+      receiver: 'null'
+      group_by: ['namespace']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+
+      routes:
+        - receiver: 'slack-notification'
+          matchers:
+            - severity="critical"
+
+    receivers:
+      - name: 'null'
+
+      - name: 'slack-notification'
+        slack_configs:
+          - api_url: 'https://hooks.slack.com/services/XXXXXXXXXXXX/XXXXXXXXXXX/XXXXXXXXXXX'
+            channel: '#alerts'
+            send_resolved: true
+
+    templates:
+      - '/etc/alertmanager/config/*.tmpl'
+
+
 ```
 
 **Alerting to Slack** 
@@ -516,29 +538,7 @@ go to https://api.slack.com/apps to create the webhook.
 
 modify the helm values.
 
-```jsx
-config:
-    global:
-      resolve_timeout: 5m
-    route:
-      group_by: ['namespace']
-      group_wait: 30s
-      group_interval: 5m
-      repeat_interval: 12h
-      receiver: 'slack-notification'
-      routes:
-      - receiver: 'slack-notification'
-        matchers:
-          - severity = "critical"
-    receivers:
-    - name: 'slack-notification'
-      slack_configs:
-          - api_url: 'https://hooks.slack.com/services/T08ULBZB5UY/B08U0CE3DEG/OivCLYq28gNzz4TabiY5zUj'
-            channel: '#alerts'
-            send_resolved: true
-    templates:
-    - '/etc/alertmanager/config/*.tmpl'
-```
+
 
 Note: you can refer this DOCs for the slack configuration. “https://prometheus.io/docs/alerting/latest/configuration/#slack_config” 
 
@@ -555,6 +555,7 @@ kubectl --namespace monitoring get secrets my-kube-prometheus-stack-grafana -o j
 ```
 
 You would get the notification in the slack’s respective channel.
+
 
 ## **Logging**
 - we will use elasticsearch for logsstore, filebeat for log shipping and kibana for the visualization. 
@@ -585,19 +586,25 @@ volumeBindingMode: WaitForFirstConsumer
 ```
 
 apply the yaml file.
-
-get the values for elastic search helm chart.
-
 ```jsx
-helm show values elastic/elasticsearch > elasticsearch.yaml 
+kubectl apply -f storageclass.yaml
 ```
-
-update the values
+update the values 
+elastic-values.yaml 
 
 ```jsx
 replicas: 1
+
 minimumMasterNodes: 1
+
 clusterHealthCheckParams: "wait_for_status=yellow&timeout=1s"
+
+volumeClaimTemplate:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: ebs-aws
+  resources:
+    requests:
+      storage: 10Gi
 ```
 
 upgrade the chart
@@ -607,14 +614,19 @@ helm upgrade my-elasticsearch elastic/elasticsearch -f elasticsearch.yaml -n log
 ```
 
 if upgarde doesnt happen then uninstall and install it again.
+```jsx
+helm uninstall my-elasticsearch -n logging
+kubectl delete pvc --all -n logging
+kubectl get all -n logging
+helm install my-elasticsearch elastic/elasticsearch --version 8.5.1 -n logging -f elastic-values.yaml
+```
 
 make sure the pod is running .
 
 ```jsx
-kubectl get po -n logging
+kubectl get pods -n logging
 NAME                     READY   STATUS    RESTARTS   AGE
-elastic-operator-0       1/1     Running   0          6h33m
-elasticsearch-master-0   1/1     Running   0          87m
+elasticsearch-master-0   1/1     Running   0          11m
 ```
 
 **FileBeat:**
@@ -645,11 +657,60 @@ my-filebeat-filebeat-kh8mj   1/1     Running   0          25s
 
 **Install Kibana:**
 
+
+modify the values for ingress settings
+kibana-values.yaml 
+
+```jsx
+elasticsearchHosts: "http://my-elasticsearch-master:9200"
+
+extraEnvs:
+  - name: ELASTICSEARCH_USERNAME
+    value: ""
+  - name: ELASTICSEARCH_PASSWORD
+    value: ""
+  - name: ELASTICSEARCH_SSL_VERIFICATIONMODE
+    value: "none"
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+
+serviceAccountName: ""
+automountServiceAccountToken: false
+
+
+ingress:
+  enabled: true
+  className: alb
+
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/backend-protocol: HTTP
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+    alb.ingress.kubernetes.io/healthcheck-path: /
+
+  hosts:
+    - paths:
+        - path: /
+          pathType: Prefix
+```
+
 install kibana through helm.
 
 ```jsx
 helm repo add elastic https://helm.elastic.co
-helm install my-kibana elastic/kibana --version 8.5.1 -n logging
+helm install my-kibana elastic/kibana   --version 8.5.1   -n logging   -f kibana-values.yaml   --no-hooks
+```
+Create kibana Secret
+```jsx
+kubectl create secret generic my-kibana-kibana-es-token  -n logging --from-literal=token=dummy-token
 ```
 
 Verify if it runs.
@@ -660,38 +721,7 @@ NAME                               READY   STATUS    RESTARTS       AGE
 elastic-operator-0                 1/1     Running   0              8h
 elasticsearch-master-0             1/1     Running   0              3h50m
 my-filebeat-filebeat-g79qs         1/1     Running   0              138m
-my-filebeat-filebeat-jz42x         1/1     Running   0              108m
-my-filebeat-filebeat-kh8mj         1/1     Running   1 (137m ago)   138m
 my-kibana-kibana-559f75574-9s4xk   1/1     Running   0              130m
-```
-
-get values
-
-```jsx
-helm show values elastic/kibana > kibana.yaml 
-```
-
-modify the values for ingress settings
-
-```jsx
-ingress:
-  enabled: true
-  className: "alb"
-  pathtype: Prefix
-  annotations:
-    alb.ingress.kubernetes.io/group.name: easyshop-app-lb
-    alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/backend-protocol: HTTP
-    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:ap-south-1:876997124628:certificate/b69bb6e7-cbd1-490b-b765-27574080f48c
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}, {"HTTPS":443}]'
-    alb.ingress.kubernetes.io/ssl-redirect: '443'
-  # kubernetes.io/ingress.class: nginx
-  # kubernetes.io/tls-acme: "true"
-  hosts:
-    - host: logs-kibana.devopsdock.site
-      paths:
-        - path: /
 ```
 
 save the file and exit. upgrade the helm chart using the values file.
@@ -700,7 +730,6 @@ save the file and exit. upgrade the helm chart using the values file.
 helm upgrade my-kibana elastic/kibana -f kibana.yaml -n logging
 ```
 
-add all the records to route 53 and give the value as load balancer DNS name. and try to access one by one. 
 
 retrive the secret of elastic search as kibana’s password, username is “elastic”
 
@@ -709,20 +738,37 @@ kubectl get secrets --namespace=logging elasticsearch-master-credentials -ojsonp
 ```
 
 ### **Filebeat Configuration to ship the "easyshop" app logs to elasticsearch**
-
-configure filebeat to ship the application logs to view in kibana
-
+to get secret of elasticsearch
 ```jsx
-filebeatConfig:
-    filebeat.yml: |
-      filebeat.inputs:
-      - type: container
-        paths:
-          - /var/log/containers/*easyshop*.log
+kubectl get secret -n logging elasticsearch-master-credentials   -o jsonpath="{.data.password}" | base64 -d
+```
+configure filebeat to ship the application logs to view in kibana
+in filebeat-values.yaml
+```jsx
+filebeat.inputs:
+  - type: container
+    paths:
+      - /var/log/containers/*.log
+    processors:
+      - add_kubernetes_metadata: {}
+      - drop_event:
+          when:
+            not:
+              contains:
+                kubernetes.namespace: "easyshop"
+
+    output.elasticsearch:
+      hosts: ["https://my-elasticsearch-master:9200"]
+      username: "elastic"
+      password: "NPaYFV66DY95zjvX"
+      ssl.verification_mode: none
+
 ```
 
 upgrade filebeat helm chart and check in kibana’s UI if the app logs are streaming.
-
+```jsx
+ helm upgrade my-filebeat elastic/filebeat   -n logging   -f filebeat-values.yaml
+```
 ## **Congratulations!** <br/>
 ![EasyShop Website Screenshot](./public/easyshop.JPG)
 
