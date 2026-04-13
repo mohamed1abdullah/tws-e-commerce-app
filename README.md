@@ -571,7 +571,7 @@ kubectl --namespace monitoring get secrets my-kube-prometheus-stack-grafana -o j
 
 You would get the notification in the slack’s respective channel.
 
-```
+
 ## **Congratulations!** <br/>
 ![EasyShop Website Screenshot](./images/easyshop.png)
 
